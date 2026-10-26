@@ -1,0 +1,33 @@
+workflows:
+  ios-unsigned-check:
+    name: iOS 未签名 IPA（下载后用 Sideloadly 签名）
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    environment:
+      flutter: 3.47.8
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Generate iOS wrapper when missing
+        script: |
+          set -euo pipefail
+          if ! test -d ios; then
+            flutter create --no-pub --platforms=ios --project-name lyricflow --org com.lyricflow.personal .
+          fi
+          # Match the generated Flutter 3.47 iOS deployment target.
+          if test -f ios/Podfile; then
+            sed -i '' "s/^#* *platform :ios, '.*'/platform :ios, '15.0'/" ios/Podfile
+          fi
+      - name: Resolve dependencies
+        script: flutter pub get
+      - name: Analyze source
+        script: flutter analyze
+      - name: Run unit tests
+        script: flutter test
+      - name: Compile unsigned for iOS
+        script: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA for local signing
+        script: bash scripts/package_unsigned_ipa.sh
+    artifacts:
+      - build/ios/ipa/LyricFlow-unsigned.ipa
+      - build/ios/ipa/LyricFlow-unsigned.ipa.sha256

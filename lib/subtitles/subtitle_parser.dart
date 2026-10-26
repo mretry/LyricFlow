@@ -1,0 +1,155 @@
+import '../models/timed_cue.dart';
+
+/// Extension point: add ASS, word-level lyrics, AI transcripts without touching UI.
+abstract interface class TimedTextParser {
+  Set<String> get extensions;
+  List<TimedCue> parse(String source);
+}
+
+class SubtitleParsers {
+  SubtitleParsers({Iterable<TimedTextParser>? extra}) {
+    register(LrcParser());
+    register(SubtitleBlockParser());
+    for (final parser in extra ?? <TimedTextParser>[]) {
+      register(parser);
+    }
+  }
+
+  final Map<String, TimedTextParser> _parsers = {};
+
+  void register(TimedTextParser parser) {
+    for (final extension in parser.extensions) {
+      _parsers[extension.toLowerCase()] = parser;
+    }
+  }
+
+  List<TimedCue> parse(String extension, String input) {
+    final parser = _parsers[extension.toLowerCase().replaceFirst('.', '')];
+    if (parser == null) {
+      throw FormatException('暂不支持 .$extension 字幕格式');
+    }
+    final result = parser.parse(input.replaceFirst('\uFEFF', ''));
+    result.sort((a, b) => a.start.compareTo(b.start));
+    return result;
+  }
+}
+
+class LrcParser implements TimedTextParser {
+  @override
+  Set<String> get extensions => const {'lrc'};
+
+  static final _time = RegExp(r'\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]');
+  static final _offset = RegExp(
+    r'\[offset:\s*([+-]?\d+)\s*\]',
+    caseSensitive: false,
+  );
+
+  @override
+  List<TimedCue> parse(String source) {
+    final result = <TimedCue>[];
+    final offset =
+        int.tryParse(_offset.firstMatch(source)?.group(1) ?? '') ?? 0;
+    for (final line in source.replaceAll('\r\n', '\n').split('\n')) {
+      final stamps = _time.allMatches(line).toList();
+      if (stamps.isEmpty) continue;
+      final text = line.replaceAll(_time, '').trim();
+      if (text.isEmpty) continue;
+      for (final stamp in stamps) {
+        final minutes = int.parse(stamp.group(1)!);
+        final seconds = int.parse(stamp.group(2)!);
+        final fraction = stamp.group(3) ?? '';
+        final ms = fraction.isEmpty ? 0 : int.parse(fraction.padRight(3, '0'));
+        final t = ((minutes * 60 + seconds) * 1000 + ms + offset).clamp(
+          0,
+          2147483647,
+        );
+        result.add(
+          TimedCue(
+            start: Duration(milliseconds: t),
+            end: Duration(milliseconds: t),
+            text: text,
+          ),
+        );
+      }
+    }
+    result.sort((a, b) => a.start.compareTo(b.start));
+    return [
+      for (var i = 0; i < result.length; i++)
+        TimedCue(
+          start: result[i].start,
+          end: i + 1 < result.length
+              ? result[i + 1].start
+              : const Duration(days: 1),
+          text: result[i].text,
+        ),
+    ];
+  }
+}
+
+/// Parses SRT and WebVTT. V1 supports cue timestamps, multiline text,
+/// voice/formatting tag stripping, and WebVTT cue identifiers.
+class SubtitleBlockParser implements TimedTextParser {
+  @override
+  Set<String> get extensions => const {'srt', 'vtt'};
+
+  @override
+  List<TimedCue> parse(String source) {
+    final normalized = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final blocks = normalized.split(RegExp(r'\n\s*\n'));
+    final cues = <TimedCue>[];
+    for (final block in blocks) {
+      final lines = block.split('\n');
+      final timeIndex = lines.indexWhere((line) => line.contains('-->'));
+      if (timeIndex < 0) continue;
+      final timeParts = lines[timeIndex].split('-->');
+      if (timeParts.length != 2) continue;
+      final start = _parseClock(timeParts[0].trim());
+      // WebVTT end time may have position/alignment settings after the time.
+      final end = _parseClock(timeParts[1].trim().split(RegExp(r'\s+')).first);
+      if (start == null || end == null || end <= start) continue;
+      final text = lines
+          .skip(timeIndex + 1)
+          .join('\n')
+          .replaceAll(RegExp(r'<[^>]*>'), '')
+          .trim();
+      if (text.isEmpty) continue;
+      cues.add(TimedCue(start: start, end: end, text: _unescape(text)));
+    }
+    return cues;
+  }
+
+  Duration? _parseClock(String s) {
+    final parts = s.replaceAll(',', '.').split(':');
+    if (parts.length != 2 && parts.length != 3) return null;
+    final secParts = parts.last.split('.');
+    if (secParts.length != 2 || secParts[1].isEmpty || secParts[1].length > 3) {
+      return null;
+    }
+    final seconds = int.tryParse(secParts[0]);
+    final ms = int.tryParse(secParts[1].padRight(3, '0'));
+    final minutes = int.tryParse(parts[parts.length - 2]);
+    final hours = parts.length == 3 ? int.tryParse(parts[0]) : 0;
+    if (seconds == null ||
+        seconds > 59 ||
+        minutes == null ||
+        minutes > 59 ||
+        ms == null ||
+        hours == null) {
+      return null;
+    }
+    return Duration(
+      hours: hours,
+      minutes: minutes,
+      seconds: seconds,
+      milliseconds: ms,
+    );
+  }
+
+  String _unescape(String s) => s
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&nbsp;', ' ');
+}
