@@ -14,18 +14,25 @@ class AudioPlayback extends MediaPlayback {
   double _speed = 1;
 
   AudioPlayback() {
-    _subs.add(_player.positionStream.listen((pos) {
-      _position = pos;
-      notifyListeners();
-    }));
-    _subs.add(_player.durationStream.listen((duration) {
-      _duration = duration ?? Duration.zero;
-      notifyListeners();
-    }));
-    _subs.add(_player.playerStateStream.listen((state) {
-      _playing = state.playing && state.processingState != ProcessingState.completed;
-      notifyListeners();
-    }));
+    _subs.add(
+      _player.positionStream.listen((pos) {
+        _position = pos;
+        notifyListeners();
+      }),
+    );
+    _subs.add(
+      _player.durationStream.listen((duration) {
+        _duration = duration ?? Duration.zero;
+        notifyListeners();
+      }),
+    );
+    _subs.add(
+      _player.playerStateStream.listen((state) {
+        _playing =
+            state.playing && state.processingState != ProcessingState.completed;
+        notifyListeners();
+      }),
+    );
   }
 
   @override

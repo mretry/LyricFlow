@@ -4,8 +4,12 @@ if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
   throw 'Flutter SDK not found. Install Flutter and add its bin directory to PATH first.'
 }
 flutter doctor
-flutter create --platforms=ios --project-name lyricflow --org com.example .
-if ($LASTEXITCODE -ne 0) { throw 'flutter create failed' }
+if (-not (Test-Path -LiteralPath 'ios')) {
+  flutter create --no-pub --platforms=ios --project-name lyricflow --org com.lyricflow.personal .
+  if ($LASTEXITCODE -ne 0) { throw 'flutter create failed' }
+}
+python scripts/configure_ios_files.py ios/Runner/Info.plist
+if ($LASTEXITCODE -ne 0) { throw 'iOS Info.plist configuration failed; Python 3 is required.' }
 flutter pub get
 if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed' }
 flutter analyze

@@ -37,19 +37,23 @@ class VideoPlayback extends MediaPlayback {
   Future<void> play() async {
     final c = _controller;
     if (c == null) return;
-    if (c.value.duration > Duration.zero && c.value.position >= c.value.duration) {
+    if (c.value.duration > Duration.zero &&
+        c.value.position >= c.value.duration) {
       await c.seekTo(Duration.zero);
     }
     await c.play();
   }
+
   @override
   Future<void> pause() async {
     await _controller?.pause();
   }
+
   @override
   Future<void> seek(Duration position) async {
     await _controller?.seekTo(position);
   }
+
   @override
   Future<void> setSpeed(double speed) async {
     await _controller?.setPlaybackSpeed(speed);

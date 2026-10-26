@@ -25,6 +25,8 @@ jobs:
           "$RUNNER_TEMP/flutter/bin/flutter" --disable-analytics
           "$RUNNER_TEMP/flutter/bin/flutter" --version
           xcodebuild -version
+      - name: Configure iOS permissions and file sharing
+        run: python3 scripts/configure_ios_files.py ios/Runner/Info.plist
       - name: Resolve dependencies
         run: flutter pub get --enforce-lockfile
       - name: Analyze

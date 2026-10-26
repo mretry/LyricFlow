@@ -10,6 +10,7 @@ class SubtitleParsers {
   SubtitleParsers({Iterable<TimedTextParser>? extra}) {
     register(LrcParser());
     register(SubtitleBlockParser());
+    register(AssParser());
     for (final parser in extra ?? <TimedTextParser>[]) {
       register(parser);
     }
@@ -59,10 +60,9 @@ class LrcParser implements TimedTextParser {
         final seconds = int.parse(stamp.group(2)!);
         final fraction = stamp.group(3) ?? '';
         final ms = fraction.isEmpty ? 0 : int.parse(fraction.padRight(3, '0'));
-        final t = ((minutes * 60 + seconds) * 1000 + ms + offset).clamp(
-          0,
-          2147483647,
-        );
+        final t = ((minutes * 60 + seconds) * 1000 + ms + offset)
+            .clamp(0, 2147483647)
+            .toInt();
         result.add(
           TimedCue(
             start: Duration(milliseconds: t),
@@ -152,4 +152,132 @@ class SubtitleBlockParser implements TimedTextParser {
       .replaceAll('&quot;', '"')
       .replaceAll('&#39;', "'")
       .replaceAll('&nbsp;', ' ');
+}
+
+/// Parses the timing and plain-text portion of Advanced SubStation Alpha (.ass).
+/// Styling, positioning, karaoke effects and vector drawings are intentionally ignored.
+class AssParser implements TimedTextParser {
+  @override
+  Set<String> get extensions => const {'ass'};
+
+  static final _timestamp = RegExp(r'^(\d+):(\d{2}):(\d{2})[.,](\d{1,3})$');
+
+  @override
+  List<TimedCue> parse(String source) {
+    final lines = source
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n');
+    List<String> format = const [
+      'layer',
+      'start',
+      'end',
+      'style',
+      'name',
+      'marginl',
+      'marginr',
+      'marginv',
+      'effect',
+      'text',
+    ];
+    final cues = <TimedCue>[];
+    var inEvents = false;
+    var sawSection = false;
+
+    for (final rawLine in lines) {
+      final line = rawLine.trim();
+      if (line.isEmpty || line.startsWith(';')) continue;
+      if (line.startsWith('[') && line.endsWith(']')) {
+        sawSection = true;
+        inEvents = line.toLowerCase() == '[events]';
+        continue;
+      }
+      if (line.toLowerCase().startsWith('format:')) {
+        if (!sawSection || inEvents) {
+          format = line
+              .substring(line.indexOf(':') + 1)
+              .split(',')
+              .map((field) => field.trim().toLowerCase())
+              .toList();
+        }
+        continue;
+      }
+      if (!line.toLowerCase().startsWith('dialogue:') ||
+          (sawSection && !inEvents)) {
+        continue;
+      }
+
+      final fields = _splitFields(
+        line.substring(line.indexOf(':') + 1),
+        format.length,
+      );
+      final startIndex = format.indexOf('start');
+      final endIndex = format.indexOf('end');
+      final textIndex = format.indexOf('text');
+      if (startIndex < 0 ||
+          endIndex < 0 ||
+          textIndex < 0 ||
+          fields.length <= startIndex ||
+          fields.length <= endIndex ||
+          fields.length <= textIndex) {
+        continue;
+      }
+      final start = _parseAssTime(fields[startIndex].trim());
+      final end = _parseAssTime(fields[endIndex].trim());
+      if (start == null || end == null || end <= start) continue;
+
+      final text = fields[textIndex]
+          .replaceAll(RegExp(r'\{[^}]*\}'), '')
+          .replaceAll(r'\N', '\n')
+          .replaceAll(r'\n', '\n')
+          .replaceAll(r'\h', ' ')
+          .trim();
+      if (text.isEmpty) continue;
+      cues.add(TimedCue(start: start, end: end, text: text));
+    }
+
+    cues.sort((a, b) => a.start.compareTo(b.start));
+    return cues;
+  }
+
+  List<String> _splitFields(String line, int expectedFields) {
+    if (expectedFields <= 1) return [line];
+    final fields = <String>[];
+    var fieldStart = 0;
+    for (
+      var i = 0;
+      i < line.length && fields.length < expectedFields - 1;
+      i++
+    ) {
+      if (line.codeUnitAt(i) == 44) {
+        fields.add(line.substring(fieldStart, i).trim());
+        fieldStart = i + 1;
+      }
+    }
+    fields.add(line.substring(fieldStart).trim());
+    return fields;
+  }
+
+  Duration? _parseAssTime(String value) {
+    final match = _timestamp.firstMatch(value);
+    if (match == null) return null;
+    final hours = int.tryParse(match.group(1)!);
+    final minutes = int.tryParse(match.group(2)!);
+    final seconds = int.tryParse(match.group(3)!);
+    final fraction = int.tryParse(match.group(4)!.padRight(3, '0'));
+    if (hours == null ||
+        minutes == null ||
+        minutes > 59 ||
+        seconds == null ||
+        seconds > 59 ||
+        fraction == null) {
+      return null;
+    }
+    return Duration(
+      hours: hours,
+      minutes: minutes,
+      seconds: seconds,
+      milliseconds: fraction,
+    );
+  }
 }

@@ -54,7 +54,27 @@ my-id
 
   test('Tap-to-seek respects subtitle delay', () {
     final cues = parsers.parse('lrc', '[00:10.00]Line 1\n[00:13.00]Line 2');
-    expect(sync.activeIndex(cues, const Duration(seconds: 11), offsetMs: 1000), 0);
+    expect(
+      sync.activeIndex(cues, const Duration(seconds: 11), offsetMs: 1000),
+      0,
+    );
     expect(sync.jumpTime(cues[1], offsetMs: 1000).inSeconds, 14);
+  });
+
+  test('ASS parses custom event format, commas and line breaks', () {
+    final cues = parsers.parse('ass', r'''[Script Info]
+Title: Test
+[V4+ Styles]
+Format: Name, Fontname
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.25,0:00:03.50,Default,,0,0,0,,Hello, world!
+Dialogue: 0,0:00:04.00,0:00:05.25,Default,,0,0,0,,First line\NSecond line {\i1}italic{\i0}
+''');
+    expect(cues.length, 2);
+    expect(cues.first.start.inMilliseconds, 1250);
+    expect(cues.first.end.inMilliseconds, 3500);
+    expect(cues.first.text, 'Hello, world!');
+    expect(cues.last.text, 'First line\nSecond line italic');
   });
 }

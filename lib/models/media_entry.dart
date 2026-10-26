@@ -15,11 +15,13 @@ class MediaEntry {
   final String id;
   final String title;
   final MediaKind kind;
+
   /// Path relative to the app documents directory; safe across iOS container moves.
   final String mediaPath;
   final String? subtitlePath;
   final DateTime createdAt;
   final int lastPositionMs;
+
   /// Positive number means the subtitle is shown later than its timestamp.
   final int subtitleOffsetMs;
 
@@ -54,7 +56,9 @@ class MediaEntry {
   factory MediaEntry.fromJson(Map<String, dynamic> data) => MediaEntry(
     id: data['id'] as String,
     title: data['title'] as String,
-    kind: (data['kind'] as String) == 'video' ? MediaKind.video : MediaKind.audio,
+    kind: (data['kind'] as String) == 'video'
+        ? MediaKind.video
+        : MediaKind.audio,
     mediaPath: data['mediaPath'] as String,
     subtitlePath: data['subtitlePath'] as String?,
     createdAt: DateTime.parse(data['createdAt'] as String),

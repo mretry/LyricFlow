@@ -4,7 +4,11 @@ import '../models/timed_cue.dart';
 class CueSync {
   const CueSync();
 
-  int activeIndex(List<TimedCue> cues, Duration mediaPosition, {int offsetMs = 0}) {
+  int activeIndex(
+    List<TimedCue> cues,
+    Duration mediaPosition, {
+    int offsetMs = 0,
+  }) {
     if (cues.isEmpty) return -1;
     final value = mediaPosition.inMilliseconds - offsetMs;
     var low = 0;
@@ -19,11 +23,15 @@ class CueSync {
         high = middle - 1;
       }
     }
-    if (candidate == -1 || value >= cues[candidate].end.inMilliseconds) return -1;
+    if (candidate == -1 || value >= cues[candidate].end.inMilliseconds) {
+      return -1;
+    }
     return candidate;
   }
 
   Duration jumpTime(TimedCue cue, {int offsetMs = 0}) => Duration(
-    milliseconds: (cue.start.inMilliseconds + offsetMs).clamp(0, 2147483647),
+    milliseconds: (cue.start.inMilliseconds + offsetMs)
+        .clamp(0, 2147483647)
+        .toInt(),
   );
 }

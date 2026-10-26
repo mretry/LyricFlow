@@ -9,6 +9,7 @@ import '../playback/media_playback.dart';
 import '../playback/playback_factory.dart';
 import '../services/file_import_service.dart';
 import '../storage/library_repository.dart';
+import '../storage/app_settings_repository.dart';
 import '../subtitles/cue_sync.dart';
 import '../subtitles/subtitle_parser.dart';
 import '../widgets/cue_list.dart';
@@ -32,6 +33,7 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen>
     with WidgetsBindingObserver {
   final _sync = const CueSync();
+  final _settings = AppSettingsRepository();
   final _cueListKey = GlobalKey<CueListState>();
   late MediaEntry _item = widget.initialItem;
   MediaPlayback? _player;
@@ -40,6 +42,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _follow = true;
   bool _loading = true;
   bool _subtitleBusy = false;
+  double _fontSize = 22.0;
   double? _scrubMs;
   String? _error;
   DateTime _lastSave = DateTime.fromMillisecondsSinceEpoch(0);
@@ -48,7 +51,17 @@ class _PlayerScreenState extends State<PlayerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadFontSize();
     _initialize();
+  }
+
+  Future<void> _loadFontSize() async {
+    try {
+      final value = await _settings.loadSubtitleFontSize();
+      if (mounted) setState(() => _fontSize = value);
+    } catch (_) {
+      // A missing preferences store should not block media playback.
+    }
   }
 
   Future<void> _initialize() async {
@@ -194,62 +207,229 @@ class _PlayerScreenState extends State<PlayerScreen>
         );
       });
     }
-    await widget.repository.upsert(_item);
+    try {
+      await widget.repository.upsert(_item);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('字幕偏移保存失败：$error')));
+      }
+    }
+  }
+
+  Future<void> _saveFontSize(double value) async {
+    try {
+      await _settings.saveSubtitleFontSize(value);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('字体设置保存失败：$error')));
+      }
+    }
   }
 
   void _offsetSettings() {
+    var draftMs = _item.subtitleOffsetMs.toDouble();
+    final secondsController = TextEditingController(
+      text: (draftMs / 1000).toStringAsFixed(3),
+    );
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (context, setLocalState) {
-          final value = _item.subtitleOffsetMs;
+          void setDraft(double value, {bool save = false}) {
+            draftMs = value.clamp(-600000.0, 600000.0).toDouble();
+            setLocalState(() {});
+            if (save) {
+              secondsController.text = (draftMs / 1000).toStringAsFixed(3);
+              unawaited(_updateOffset(draftMs.round()));
+            }
+          }
+
           return SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 10, 24, 28),
+              padding: EdgeInsets.fromLTRB(
+                24,
+                10,
+                24,
+                24 + MediaQuery.viewInsetsOf(context).bottom,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text(
-                    '调整字幕时间',
+                    '手动校准字幕时间轴',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '${value >= 0 ? '+' : ''}${(value / 1000).toStringAsFixed(2)} 秒',
-                    style: const TextStyle(
-                      fontSize: 25,
-                      color: Color(0xFFC9ABFF),
-                    ),
-                  ),
+                  const SizedBox(height: 8),
                   const Text(
-                    '正值：字幕延后；负值：字幕提前',
+                    '正值：字幕整体延后；负值：字幕整体提前。设置会保存到当前媒体。',
                     style: TextStyle(fontSize: 12, color: Color(0xFF9691A4)),
                   ),
-                  Slider(
-                    value: value.clamp(-5000, 5000).toDouble(),
-                    min: -5000,
-                    max: 5000,
-                    divisions: 40,
-                    onChanged: (changed) {
-                      setLocalState(() {});
-                      unawaited(_updateOffset(changed.round()));
-                    },
+                  const SizedBox(height: 12),
+                  Center(
+                    child: Text(
+                      '${draftMs >= 0 ? '+' : ''}${(draftMs / 1000).toStringAsFixed(3)} 秒',
+                      style: const TextStyle(
+                        fontSize: 26,
+                        color: Color(0xFFC9ABFF),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                  TextButton.icon(
-                    onPressed: () {
-                      unawaited(_updateOffset(0));
-                      setLocalState(() {});
-                    },
-                    icon: const Icon(Icons.restart_alt),
-                    label: const Text('恢复 0 秒'),
+                  Slider(
+                    value: draftMs.clamp(-30000.0, 30000.0).toDouble(),
+                    min: -30000,
+                    max: 30000,
+                    divisions: 600,
+                    onChanged: (changed) => setDraft(changed),
+                    onChangeEnd: (changed) => setDraft(changed, save: true),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: secondsController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                            signed: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: '手动输入偏移（秒）',
+                            helperText: '可输入正数或负数，最多 ±600 秒',
+                            border: OutlineInputBorder(),
+                          ),
+                          onSubmitted: (text) {
+                            final seconds = double.tryParse(text.trim());
+                            if (seconds == null) return;
+                            setDraft(seconds * 1000, save: true);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      FilledButton(
+                        onPressed: () {
+                          final seconds = double.tryParse(
+                            secondsController.text.trim(),
+                          );
+                          if (seconds != null) {
+                            setDraft(seconds * 1000, save: true);
+                          }
+                          FocusScope.of(context).unfocus();
+                        },
+                        child: const Text('应用'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final step in const [
+                        -1000,
+                        -100,
+                        -10,
+                        10,
+                        100,
+                        1000,
+                      ])
+                        OutlinedButton(
+                          onPressed: () => setDraft(draftMs + step, save: true),
+                          child: Text('${step > 0 ? '+' : ''}$step ms'),
+                        ),
+                    ],
+                  ),
+                  Align(
+                    alignment: Alignment.center,
+                    child: TextButton.icon(
+                      onPressed: () => setDraft(0, save: true),
+                      icon: const Icon(Icons.restart_alt),
+                      label: const Text('恢复 0 秒'),
+                    ),
                   ),
                 ],
               ),
             ),
           );
         },
+      ),
+    ).whenComplete(secondsController.dispose);
+  }
+
+  void _fontSettings() {
+    var draftSize = _fontSize;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setLocalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 10, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '字幕字体大小',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '预览：长字幕会自动换行，不再限制为固定三行。',
+                  style: TextStyle(
+                    fontSize: draftSize,
+                    height: 1.3,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Icon(Icons.text_decrease_rounded),
+                    Expanded(
+                      child: Slider(
+                        value: draftSize,
+                        min: 14,
+                        max: 36,
+                        divisions: 22,
+                        label: '${draftSize.round()} pt',
+                        onChanged: (value) =>
+                            setLocalState(() => draftSize = value),
+                        onChangeEnd: (value) {
+                          setState(() => _fontSize = value);
+                          unawaited(_saveFontSize(value));
+                        },
+                      ),
+                    ),
+                    const Icon(Icons.text_increase_rounded),
+                  ],
+                ),
+                Center(
+                  child: Text(
+                    '${draftSize.round()} pt',
+                    style: const TextStyle(color: Color(0xFFC9ABFF)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: () {
+                    setState(() => _fontSize = draftSize);
+                    unawaited(_saveFontSize(draftSize));
+                    Navigator.of(sheetContext).pop();
+                  },
+                  child: const Text('保存字体大小'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -289,6 +469,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           follow: _follow,
           onManualScroll: () => setState(() => _follow = false),
           onTapCue: (cue) => unawaited(_seekCue(cue)),
+          fontSize: _fontSize,
         ),
         if (!_follow && _cues.isNotEmpty)
           Positioned(
@@ -316,7 +497,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         final maxMs = player.duration.inMilliseconds.toDouble();
         final currentMs = player.position.inMilliseconds.toDouble();
         final sliderMax = maxMs > 0 ? maxMs : 1.0;
-        final value = (_scrubMs ?? currentMs).clamp(0.0, sliderMax);
+        final value = (_scrubMs ?? currentMs).clamp(0.0, sliderMax).toDouble();
         return Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
           child: Column(
@@ -388,7 +569,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                       player.seek(
                         Duration(
                           milliseconds: (player.position.inMilliseconds - 10000)
-                              .clamp(0, player.duration.inMilliseconds),
+                              .clamp(0, player.duration.inMilliseconds)
+                              .toInt(),
                         ),
                       ),
                     ),
@@ -421,7 +603,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                       player.seek(
                         Duration(
                           milliseconds: (player.position.inMilliseconds + 10000)
-                              .clamp(0, player.duration.inMilliseconds),
+                              .clamp(0, player.duration.inMilliseconds)
+                              .toInt(),
                         ),
                       ),
                     ),
@@ -465,6 +648,11 @@ class _PlayerScreenState extends State<PlayerScreen>
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: '字幕字体大小',
+            onPressed: _fontSettings,
+            icon: const Icon(Icons.text_fields_rounded),
+          ),
           IconButton(
             tooltip: '导入/替换歌词字幕',
             onPressed: _subtitleBusy ? null : _chooseSubtitle,

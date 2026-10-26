@@ -1,111 +1,121 @@
 # LyricFlow — iPhone / iPad 音视频逐句跳转播放器
 
-**版本：0.1.0（基础版源码）**　**技术：Flutter + Dart**　**存储：完全本地、无账号/无云端服务器**
+**版本：0.2.0（功能修订源码）** · **技术：Flutter + Dart** · **本地优先**
 
-## Windows 个人签名构建（2026-10-26 更新）
+LyricFlow 将 Apple Music 风格的逐句歌词交互扩展到用户自己的音频和视频：歌词/字幕随播放进度高亮，点击任意句子即可跳转播放。当前交付仍是源码项目，不是已经签名、可直接安装的 IPA；本环境没有 Flutter SDK、Xcode 和 Apple 签名证书。
 
-本工程现已包含 iOS 原生工程、锁定的依赖，以及 GitHub Actions 工作流。
-使用 Flutter 3.47.8 / Dart 3.13.7，最低 iOS 15。原文后续关于“尚无 iOS 外壳”的描述为初始交付记录。
+## 本次修订内容
 
-- 在 GitHub 的 Actions 中运行 **Build iOS IPA**；推送到 main 也会触发构建。
-- 工作流会执行静态分析、测试、release 真机编译并生成 `LyricFlow-unsigned-ios` 下载包。
-- 将下载包里的 `LyricFlow-unsigned.ipa` 放入 Windows 版 Sideloadly，用自己的 Apple 账号签名安装。
-- 不需要付费开发者会员；免费签名有效期 7 天，需要续签。未签名 IPA 不能直接安装。
-- 原有 Codemagic 配置仍保留作为另一种构建方式。详细操作见 `WINDOWS_IOS_SETUP.md`。
+- **长字幕不再固定三行截断**：字幕列表按内容动态计算高度，自动换行；可调整并记忆字幕字体大小（14–36 pt）。
+- **iOS 文件 App 管理**：构建时自动为 `ios/Runner/Info.plist` 设置 `UIFileSharingEnabled` 和 `LSSupportsOpeningDocumentsInPlace`。安装后可在「文件 → 浏览 → 我的 iPhone/iPad → LyricFlow」查看应用 Documents 目录下的 `media` 文件夹。
+- **导入失败清理**：媒体先写入 `.partial` 临时文件，校验完整字节数后再提交；失败时清理部分文件及本次媒体目录。批量导入会报告单项失败，不让失败文件残留占空间。
+- **手动校准时间轴**：滑块 ±30 秒、手动输入 ±600 秒、±1000/100/10 ms 微调；校准值保存到当前媒体，并同时作用于当前句高亮与点击跳转。
+- **ASS 字幕**：支持 `.ass` 的事件时间轴、按 `Format:` 字段解析、逗号文本、`\\N`/`\\n` 换行和基础覆盖样式标签剥离。
+- **Windows 局域网二维码导入**：配套电脑脚本生成二维码。iPhone/iPad 在 App 内扫描后直接列出电脑共享目录中的媒体/字幕文件，选择后通过局域网流式下载并直接导入 App；不需要云盘中转，也不先把大视频完整下载到临时目录。
 
-本地检查不能代替 macOS 编译与 iPhone 实机验证，请以 Actions 构建结果及实机验收为准。
+## 基础功能
 
-这个仓库交付了完整的 Flutter 业务源码、文件导入与本地媒体库、两种播放模式、可扩展字幕时间轴、单元测试及云端 iOS 编译配置。**它不是已经编译好的 IPA**：本交付环境没有 Flutter SDK、Xcode 和 Apple 签名证书，尚未执行 Flutter 静态分析、真机测试或 iOS 打包。项目通过 `flutter create` 生成 Apple 原生外壳后才能构建。
+- 音频：以动态歌词为主的沉浸式界面。
+- 视频：竖屏上方视频、下方独立字幕；iPad/横屏宽屏可以视频和字幕左右分栏。
+- 支持媒体扩展名：MP3/M4A/AAC/WAV/FLAC、MP4/MOV/M4V（具体编码仍取决于 iOS 解码器）。
+- 支持字幕：LRC/SRT/VTT/ASS，UTF-8（含 BOM）。
+- 可同时导入同名媒体和字幕文件自动配对；播放中也可单独替换字幕。
+- 播放/暂停、进度拖动、前后 10 秒、0.5–2× 倍速、字幕偏移校准。
+- 本地保存媒体清单、字幕关联、上次播放进度、每个媒体的时间偏移。
+- 无账号和云端存储。局域网传输只在用户启动 Windows 共享脚本后开放，并使用随机令牌保护共享链接。
 
-## 已实现的基础功能
+## Windows 上运行电脑二维码共享工具
 
-- 通过系统「文件」选择器导入本地兼容音频和视频：MP3/M4A/AAC/WAV/FLAC，MP4/MOV/M4V（具体编码需 iOS 解码器支持，尤其 FLAC/非常规编码）。
-- 可同时选中 `lesson.mp4` 与 `lesson.srt`、`music.mp3` 与 `music.lrc` 等同名文件进行自动配对。也可以进入播放器后右上角单独导入或替换字幕。
-- 支持 UTF-8 编码的 LRC、SRT、WebVTT；逐句时间高亮，点任何句子定位播放。对于 SRT/VTT，有间隔时不会错误地高亮上一句。
-- 手动滚动歌词会暂停跟随；「跟随播放」按钮重新跟踪当前句。
-- 音频：以歌词为主的沉浸式界面。视频：竖屏上方视频/下方字幕；横屏宽屏下可以视频左侧/字幕右侧。
-- 播放/暂停、前后 10 秒、进度拖动、0.5～2x 倍速、字幕整体 ±5 秒校准（250 毫秒一档）。
-- 复制到 App 沙盒私有目录并保存本地媒体列表、字幕关联、上次进度、字幕偏移；可删除副本。
-- 默认离线运行，没有隐藏网络访问接口或安全后门。
+### 一次性准备
 
-## 在 Windows 上准备（无 Mac）
+1. 在 Windows 安装 Python 3（推荐 Python 3.10+）。
+2. 解压项目源码。
+3. 双击 `scripts/start_pc_share.bat`，或在项目目录运行：
 
-1. 安装当前稳定版 Flutter SDK（其 Dart SDK 需 ≥3.12），在 PowerShell 中运行 `flutter --version`。建议使用 VS Code + Flutter / Dart 扩展。
-2. 解压本文件夹，例如 `H:\\Program\\Projects\\LyricFlow_MVP`，在该目录打开 PowerShell。
-3. 运行 `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1`；脚本运行 `flutter create --platforms=ios --project-name lyricflow --org com.example .`、安装依赖并执行分析/测试。
-4. 在项目目录运行 `flutter test` 检查字幕逻辑。在 Windows 无法使用 Xcode 编译、启动 iOS Simulator 或将本 App 直接部署到 iPhone。
-5. 用 Git 将代码推送到 GitHub 私有仓库，连接 Codemagic 等带 macOS/Xcode 的构建服务。
-6. **第一次编译检查（无需 Apple 签名）**：Codemagic 选择 `ios-unsigned-check` 工作流，执行 `flutter analyze`、`flutter test`、`flutter build ios --release --no-codesign`。成功只得到无法直接安装的未签名 `.app`，不等于实机测试通过。
-7. **安装 iPhone / iPad**：需要完成 Apple 代码签名与分发。推荐加入 Apple Developer Program（付费），在 Codemagic 中设置 App Store Connect API、证书、Bundle ID 和 profile，生成已签名 IPA，上传 TestFlight 后在手机和平板上安装。也可以采用其他符合 Apple 规则的签名流程。未签名产物无法直接安装。
-8. `com.example.lyricflow` 只是测试用 Bundle ID；正式签名/发布时必须改为你拥有的唯一 Bundle ID。
+   ```powershell
+   py -m pip install -r scripts/requirements-pc-share.txt
+   py scripts/pc_lan_share_server.py
+   ```
 
-说明：工具 `file_picker` v13 需要 iOS 14+，`codemagic.yaml` 会把 CocoaPods 最低版本设为 iOS 14；如果以后提交生成的 `ios/` 目录，也要保证其中的 `Podfile` 与 Xcode Deployment Target 至少为 14.0。签名配置不应放进 Git 仓库。
+4. 选择要共享的文件夹。电脑会打开一个显示二维码的浏览器页面。
+5. 确保电脑与 iPhone/iPad 在同一个 Wi-Fi 网络。打开 LyricFlow，点击右上角二维码图标，扫描电脑网页中的二维码。
+6. 在手机/平板选择要导入的媒体和字幕。可同时选择 `movie.mp4` + `movie.ass`，同名文件会自动配对。
+7. 导入结束后，在电脑终端按 `Ctrl+C` 停止共享。
 
-## 业务结构与升级接口
+### 局域网安全说明
 
-```
+- 共享服务只开放当前选择的文件夹中受支持的媒体和字幕文件，不接受上传，也不允许浏览该目录之外的文件。
+- 二维码 URL 含随机访问令牌。不要把它发给不信任的人；在可信的家庭/私人 Wi-Fi 下使用。
+- Windows 防火墙提示时，只允许 Python 在**专用网络**中通信。若扫描后连接失败，检查手机与电脑是否处于同一 Wi-Fi、VPN/访客网络隔离以及防火墙设置。
+- 默认端口为 `8765`。若端口被占用，可用 `py scripts/pc_lan_share_server.py --port 8766`。
+- 工具只会共享当前选定目录中的受支持扩展名；支持递归查找子文件夹。
+
+## Windows 开发和 iOS 构建
+
+1. 安装 Flutter SDK（项目要求 Dart SDK ≥3.12）及 VS Code Flutter/Dart 扩展。
+2. 在项目目录运行：
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_windows.ps1
+   ```
+
+   脚本会生成 iOS 原生工程外壳、设置文件共享/相机/局域网权限、拉取依赖并执行 `flutter analyze` 与 `flutter test`。
+3. Windows 可以编辑业务源码和运行部分 Dart 测试，但不能用 Xcode 编译、签名或部署 iOS App。
+4. 将项目推送到私有 Git 仓库，连接 Codemagic 等 macOS 构建服务。`codemagic.yaml` 会在生成 iOS 工程后再次配置 `Info.plist`。
+5. 未签名构建仅用于编译检查，不能直接安装。安装到 iPhone/iPad 需要 Apple 代码签名；TestFlight 测试通常需要 Apple Developer Program 会员、App Store Connect 配置和签名资料。
+
+## 项目结构与扩展接口
+
+```text
 lib/
-  models/
-    media_entry.dart           # 持久化媒体结构，包含进度和字幕偏移
-    timed_cue.dart            # 通用字幕开始/结束/内容（后续可做词级扩展）
+  models/                     # 媒体、通用字幕 cue 数据结构
   subtitles/
-    subtitle_parser.dart      # TimedTextParser 接口 + LRC/SRT/VTT + 注册器
-    cue_sync.dart             # 时间轴匹配 + 点击反向跳转，毫秒精度
+    subtitle_parser.dart      # TimedTextParser + LRC/SRT/VTT/ASS
+    cue_sync.dart             # 统一毫秒时间轴、偏移、高亮与点击跳转
   playback/
-    media_playback.dart       # MediaPlayback 抽象接口
-    audio_playback.dart       # just_audio 实现
-    video_playback.dart       # video_player 实现
-    playback_factory.dart     # 播放器工厂，可替换引擎
+    media_playback.dart       # 播放器抽象接口
+    playback_factory.dart     # 按媒体类型选择播放器
   storage/
-    library_repository.dart   # LibraryRepository 抽象与本地实现
+    library_repository.dart   # 本地媒体库接口与文件管理
+    app_settings_repository.dart # 独立用户设置
   services/
-    file_import_service.dart  # 系统文件导入 + 流式复制 + 字幕配对
-  widgets/
-    cue_list.dart             # 可滚动点击字幕列表
+    file_import_service.dart  # 文件选择、流式导入、校验与失败清理
+    lan_share_client.dart     # 局域网文件清单与流式下载
   screens/
     library_screen.dart
     player_screen.dart
+    lan_share_import_screen.dart
+  widgets/
+    cue_list.dart             # 动态高度、可点击、可滚动字幕列表
+scripts/
+  pc_lan_share_server.py      # Windows 局域网共享服务与二维码页面
+  configure_ios_files.py      # iOS Info.plist 配置
+  bootstrap_windows.ps1
 ```
 
-推荐后续升级顺序（不是 V1 已实现功能）：
+扩展设计：
 
-- **V1.1**：双语字幕、字体大小、主题、上下句跳转、单句 A/B 循环。
-- **V1.2**：词级时间戳数据模型（`TimedWord`）、逐字高亮、增强型 LRC/ASS 可插拔解析器。
-- **V1.3**：自动语音识别及强制对齐（做成可选 AI 转写服务；可本地或用户显式授权云端）。
-- **V2**：文件分享导入、系统分享扩展、播放列表/iCloud 同步、画中画/后台播放、AirPlay。
+- 新字幕格式实现 `TimedTextParser` 并注册到 `SubtitleParsers`。
+- 逐字高亮可增加 `TimedWord` 模型，不需要改动播放器接口。
+- SQLite/iCloud 可替换 `LibraryRepository` 实现。
+- 后台播放、AirPlay 或更换播放引擎可扩展 `MediaPlayback` / `PlaybackFactory`。
+- 双语字幕、单句循环、当前句起止时间编辑、主题等可作为独立功能继续添加。
 
-接口扩展举例：想支持 ASS 字幕，实现 `TimedTextParser` 并在 `SubtitleParsers.register(...)` 注册；想替换视频内核，实现 `MediaPlayback`，然后替换 `PlaybackFactory`；想由 JSON 存储改为 SQLite 或 iCloud，实现 `LibraryRepository` 并让 UI 依赖该接口。
+## 已知边界与验收
 
-## 字幕规则
+- ASS 目前提取时间与纯文本；不完整保留字体、位置、颜色、卡拉 OK 特效和矢量绘图。复杂 ASS 特效与逐字高亮不是当前版本目标。
+- 字幕解析按 UTF-8 读取；GBK、Big5、UTF-16 暂未做自动转码。
+- 视频实际 seek 精度仍受源文件关键帧与 iOS 解码器影响。
+- 导入媒体会占用设备本地存储；文件 App 中手动删除媒体后，应用媒体库记录也需要在 App 内删除。
+- **当前执行环境没有 Flutter/Dart SDK 与 Xcode，因此本次尚未运行 `flutter analyze`、`flutter test`、iOS 编译或真机测试。** 电脑端 Python 工具会先做语法检查；Flutter 项目需在有 Flutter SDK 的环境完成编译和验收。
 
-- 只要字幕文件与媒体文件主文件名相同（不区分大小写），同一批导入时即自动配对；例如 `abc.MP4` 与 `abc.srt`。
-- UTF-8（含 BOM）受支持。GBK、Big5、UTF-16 尚未做转换，建议先转 UTF-8；外挂字幕必须带有效时间戳，普通 TXT 不能直接跳转。
-- LRC 支持 `[mm:ss.xx]`、`[mm:ss.xxx]`、同一歌词多个时间戳、全局 `[offset:+/-毫秒]`；末句显示至播放器结束（内部设置为一日，实际以媒体时长为限）。
-- SRT/VTT 用字幕开始和结束时间；时间区间外无当前高亮。VTT cue 定位属性、基础 HTML 标签会忽略，保留纯文本；富文本样式不是 V1 范围。
-- 点击字幕依据时间戳向播放器调用 `seek`；实际视频帧定位精度与源文件编码、关键帧/平台 seek 行为有关，不保证所有视频逐毫秒无误差。
+### 建议验收顺序
 
-## 边界与注意事项
-
-- 导入本地文件时，会复制媒体到 App 私有文档目录。大视频会占用设备两份空间；复制使用字节流，不整段一次性加载到内存。
-- **iOS 实机测试尚未执行**。尤其需要验证文件导入器能否在不同云盘来源下取到完整本地文件、不同编码/格式、超大媒体文件及 iPad 布局。
-- 本版本没有 DRM 受保护 Apple Music 歌曲导入、在线流媒体解析、自动生成字幕、后台音频、锁屏控制、画中画或云同步。
-- 这里提供的是独立的播放/歌词交互实现，不包含 Apple 商标、歌词授权数据或受版权保护的 Apple Music 资源。
-- 若在更新系统或测试机前做备份，注意备份 App 沙盒文件；删除 App 通常会同时删除其私有媒体副本。
-
-## 第一轮验收清单
-
-- [ ] `flutter analyze` 无错误，`flutter test` 全通过（在有 Flutter 的机器/CI 执行）
-- [ ] iPhone 导入 `song.mp3 + song.lrc`；自动高亮和点击跳转正常
-- [ ] iPhone 导入 `clip.mp4 + clip.srt`；竖屏上下分屏，点击下方字幕同步视频
-- [ ] iPad 横屏视频左右分屏
-- [ ] 用户滚动字幕时自动跟随停止；点跟随或字幕后恢复
-- [ ] 调整字幕 +1000ms 后高亮和点击跳转一起偏移
-- [ ] 退出重新进入后恢复配对和播放位置
-- [ ] 导入大视频时内存占用稳定，文件存在应用内存储
-- [ ] 删除媒体时清理复制文件
-
-## 文档
-
-- Flutter： https://docs.flutter.dev/
-- Codemagic Flutter iOS build： https://docs.codemagic.io/flutter/flutter-projects/
-- Codemagic iOS 签名： https://docs.codemagic.io/flutter-code-signing/ios-code-signing/
+- [ ] 超长中英字幕自动换行、字体调整后仍能完整阅读
+- [ ] 文件 App 中能看到 `LyricFlow/media` 目录
+- [ ] 中断/失败导入后没有 `.partial` 或孤立媒体目录
+- [ ] 偏移设为 +1.250 秒后高亮和点击跳转都一致偏移
+- [ ] ASS 导入后时间、逗号文本、多行字幕显示正确
+- [ ] Windows 共享工具显示二维码，iPhone/iPad 扫码并直接导入媒体/字幕
+- [ ] `flutter analyze` 无错误、`flutter test` 全通过
+- [ ] 在 iPhone 与 iPad 真机验证播放、文件共享、相机权限、局域网和长字幕布局

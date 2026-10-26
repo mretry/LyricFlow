@@ -1,7 +1,7 @@
 name: lyricflow
 description: Offline audio/video player with tap-to-seek timed lyrics.
 publish_to: none
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: '>=3.12.0 <4.0.0'
@@ -16,6 +16,9 @@ dependencies:
   path_provider: ^2.1.6
   shared_preferences: ^2.5.6
   path: ^1.9.1
+  http: ^1.3.0
+  mobile_scanner: ^7.4.2
+  scrollable_positioned_list: ^0.3.8
 
 dev_dependencies:
   flutter_test:

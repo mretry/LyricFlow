@@ -13,6 +13,7 @@ abstract interface class LibraryRepository {
   Future<void> upsert(MediaEntry item);
   Future<void> remove(String id);
   Future<String> absolutePath(String relativePath);
+  Future<void> deleteFilesByPath(String relativePath);
 }
 
 class LocalLibraryRepository implements LibraryRepository {
@@ -22,6 +23,7 @@ class LocalLibraryRepository implements LibraryRepository {
   final _preferences = SharedPreferencesAsync();
   List<MediaEntry>? _cache;
   Future<void> _pendingWrite = Future.value();
+  bool _cleanupDone = false;
 
   @override
   Future<List<MediaEntry>> load() async {
@@ -34,6 +36,14 @@ class LocalLibraryRepository implements LibraryRepository {
       _cache = decoded
           .map((value) => MediaEntry.fromJson(value as Map<String, dynamic>))
           .toList();
+    }
+    if (!_cleanupDone) {
+      _cleanupDone = true;
+      try {
+        await _cleanupFailedImportArtifacts();
+      } catch (_) {
+        // Startup cleanup is best-effort and must not prevent opening the library.
+      }
     }
     return List.of(_cache!);
   }
@@ -62,7 +72,9 @@ class LocalLibraryRepository implements LibraryRepository {
   Future<void> _persist() {
     // Serialize writes to protect against overlapping position-save requests.
     final snapshot = jsonEncode(_cache!.map((item) => item.toJson()).toList());
-    _pendingWrite = _pendingWrite.then((_) => _preferences.setString(key, snapshot));
+    _pendingWrite = _pendingWrite
+        .catchError((Object _) {})
+        .then((_) => _preferences.setString(key, snapshot));
     return _pendingWrite;
   }
 
@@ -77,8 +89,67 @@ class LocalLibraryRepository implements LibraryRepository {
     return absolute;
   }
 
-  Future<void> deleteFiles(MediaEntry item) async {
-    final fullPath = await absolutePath(item.mediaPath);
+  Future<void> _cleanupFailedImportArtifacts() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final root = Directory(p.join(docs.path, 'media'));
+    if (!await root.exists()) return;
+
+    final knownDirectories = _cache!
+        .map((item) => p.normalize(p.dirname(item.mediaPath)))
+        .toSet();
+    final generatedDirectory = RegExp(r'^(?:.+_)?\d{15,}_\d+$');
+
+    // A prior interrupted import can leave a large completed copy without a
+    // library record. Only remove directories matching our generated naming
+    // convention; arbitrary user-created folders remain untouched.
+    await for (final entity in root.list(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final relative = p.normalize(p.relative(entity.path, from: docs.path));
+      await for (final file in entity.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (file is File && file.path.endsWith('.partial')) {
+          try {
+            await file.delete();
+          } catch (_) {}
+        }
+      }
+      if (knownDirectories.contains(relative)) continue;
+      final directoryName = p.basename(entity.path);
+      if (!generatedDirectory.hasMatch(directoryName)) continue;
+      final files = await entity
+          .list(recursive: true, followLinks: false)
+          .where((entry) => entry is File)
+          .cast<File>()
+          .toList();
+      final titleMatch = RegExp(
+        r'^(.*)_\d{15,}_\d+$',
+      ).firstMatch(directoryName);
+      final titlePrefix = titleMatch?.group(1);
+      final containsImportArtifact = files.any((file) {
+        final name = p.basename(file.path);
+        return name.endsWith('.partial') ||
+            RegExp(
+              r'^original\.(mp3|m4a|aac|wav|flac|mp4|mov|m4v)$',
+            ).hasMatch(name) ||
+            name.startsWith('captions.') ||
+            (titlePrefix != null && name.startsWith('$titlePrefix.'));
+      });
+      if (files.isEmpty || containsImportArtifact) {
+        try {
+          await entity.delete(recursive: true);
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> deleteFiles(MediaEntry item) =>
+      deleteFilesByPath(item.mediaPath);
+
+  @override
+  Future<void> deleteFilesByPath(String relativePath) async {
+    final fullPath = await absolutePath(relativePath);
     final folder = Directory(p.dirname(fullPath));
     if (await folder.exists()) await folder.delete(recursive: true);
   }

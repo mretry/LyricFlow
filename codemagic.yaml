@@ -14,6 +14,7 @@ workflows:
           if ! test -d ios; then
             flutter create --no-pub --platforms=ios --project-name lyricflow --org com.lyricflow.personal .
           fi
+          python3 scripts/configure_ios_files.py ios/Runner/Info.plist
           # Match the generated Flutter 3.47 iOS deployment target.
           if test -f ios/Podfile; then
             sed -i '' "s/^#* *platform :ios, '.*'/platform :ios, '15.0'/" ios/Podfile
